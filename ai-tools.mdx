@@ -1,0 +1,66 @@
+---
+title: "Use these docs in your agent"
+description: "These docs are served as an MCP server and an agent skill so AI coding tools can read and act on them — with no extra setup."
+keywords: ["MCP", "skill.md", "llms.txt", "agent skills", "Claude Code", "Cursor"]
+---
+
+This site is AI-ready out of the box. Mintlify automatically serves the documentation as an **MCP server**, an **agent skill** (`skill.md`), and **`llms.txt`** — so an AI coding tool can search these docs and act on effy without you copy-pasting pages.
+
+Everything below works automatically once the site is deployed. No `docs.json` changes are required.
+
+## Add the skill to your agent
+
+The fastest path. The `skills` CLI detects your installed agents (Claude Code, Cursor, Windsurf, and others) and installs the effy skill into them:
+
+```bash
+npx skills add <your-docs-domain>
+```
+
+`skill.md` is generated from this documentation following the [agentskills.io](https://agentskills.io) spec and stays in sync as the docs change. View it directly at `<your-docs-domain>/skill.md`.
+
+<Note>
+  After a deploy, the first generation of `skill.md` can take up to 24 hours. The MCP server and `llms.txt` are available immediately.
+</Note>
+
+## Connect the MCP server
+
+Every page is searchable through a hosted MCP server at the `/mcp` path of this site:
+
+| Endpoint | Serves |
+| --- | --- |
+| `<your-docs-domain>/mcp` | The search MCP server. |
+| `<your-docs-domain>/.well-known/mcp` | MCP discovery. |
+| `<your-docs-domain>/authed/mcp` | The authenticated variant (auth-protected sites). |
+
+Point any MCP client at the `/mcp` URL. For example, in Claude Code:
+
+```bash
+claude mcp add --transport http effy-docs <your-docs-domain>/mcp
+```
+
+## Fetch the Markdown directly
+
+For tools that prefer plain context over a protocol:
+
+| Endpoint | Serves |
+| --- | --- |
+| `<your-docs-domain>/llms.txt` | An index of every page, with `.md` links. |
+| `<your-docs-domain>/llms-full.txt` | The full documentation as one file. |
+| `<any-page>.md` | The Markdown source of a single page. |
+
+## The contextual menu
+
+Every page has a contextual menu (top-right) with one-click actions to copy the page as Markdown, open it in Claude or ChatGPT, or connect the MCP server in Cursor or VS Code. The available actions are configured in `docs.json`:
+
+```json docs.json
+"contextual": {
+  "options": ["copy", "view", "claude", "chatgpt", "mcp", "cursor", "vscode"]
+}
+```
+
+## Do you need to configure anything?
+
+No — MCP, `skill.md`, and `llms.txt` are all served automatically. Two optional refinements:
+
+- A clear `description` in `docs.json` and per-page `description` frontmatter improve the quality of the generated `skill.md` and `llms.txt`.
+- By default only pages in the `docs.json` navigation are indexed for MCP search. To include hidden pages, set `seo.indexing` to `all` in `docs.json`.

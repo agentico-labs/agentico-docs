@@ -1,7 +1,8 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "effy",
+  "description": "effy is a multi-tenant agent manager built on eve: one deployment serves per-user agents, each session scoped to a verified (tenant, user) with its own persona, memory, and tools.",
   "colors": {
     "primary": "#16A34A",
     "light": "#07C983",
@@ -9,26 +10,52 @@
   },
   "favicon": "/favicon.svg",
   "navigation": {
-    "pages": [
+    "groups": [
       {
-        "group": "Getting Started",
+        "group": "Get started",
         "pages": [
           "index",
-          "quickstart"
+          "quickstart",
+          "architecture"
+        ]
+      },
+      {
+        "group": "Concepts",
+        "pages": [
+          "concepts/multi-tenancy",
+          "concepts/personas",
+          "concepts/memory",
+          "concepts/custom-tools"
+        ]
+      },
+      {
+        "group": "Integrate",
+        "pages": [
+          "guides/sdk",
+          "guides/authentication",
+          "guides/deployment"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/tools",
+          "reference/configuration",
+          "ai-tools"
         ]
       }
     ],
     "global": {
       "anchors": [
         {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
+          "anchor": "GitHub",
+          "href": "https://github.com/agentico-labs/effy",
+          "icon": "github"
         },
         {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
+          "anchor": "eve framework",
+          "href": "https://eve.dev/docs",
+          "icon": "book-open-cover"
         }
       ]
     }
@@ -40,23 +67,22 @@
   "navbar": {
     "links": [
       {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
+        "label": "GitHub",
+        "href": "https://github.com/agentico-labs/effy"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "label": "Get started",
+      "href": "/quickstart"
     }
   },
   "contextual": {
     "options": [
       "copy",
       "view",
-      "chatgpt",
       "claude",
-      "perplexity",
+      "chatgpt",
       "mcp",
       "cursor",
       "vscode"
@@ -64,9 +90,7 @@
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/agentico-labs"
     }
   }
 }

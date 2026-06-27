@@ -1,47 +1,80 @@
 ---
 title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+description: "Run effy locally, talk to it, and watch it remember a fact across turns — in about five minutes."
+keywords: ["quickstart", "eve dev", "EFFY_DEV_AUTH", "local development"]
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This guide takes you from a clone to a running effy agent you can talk to. Locally, you don't need to mint tokens — a dev-auth flag stands in for your management layer.
 
 ## Prerequisites
 
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+- **Node.js 24** (the project pins `"node": "24.x"`).
+- The [effy repository](https://github.com/agentico-labs/effy).
+- Model gateway credentials. effy routes the model through the Vercel AI Gateway; see the [eve deployment docs](https://eve.dev/docs) for which variables to set.
 
 ## Get started
 
 <Steps>
   <Step title="Install">
-    Describe how to install your product or sign up.
+    Clone the repository and install dependencies.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/agentico-labs/effy.git
+    cd effy
+    npm install
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+  <Step title="Run the dev REPL">
+    Start `eve dev` with dev auth enabled. This identifies you as tenant `dev`, user `dev-user`, so memory and tools have a scope to attach to without a token.
 
     ```bash
-    your-cli init
+    EFFY_DEV_AUTH=1 npm run dev
     ```
+
+    The REPL opens an interactive session. Try asking it to remember something:
+
+    ```text
+    > Remember that I prefer metric units.
+    ```
+
+    The agent calls its `remember` tool and confirms. Ask a follow-up and it recalls the fact — long-term memory is injected on every turn.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+  <Step title="Drive the HTTP API (optional)">
+    `eve dev` also serves effy's HTTP API. Note the port it prints (default `3000`). With `EFFY_DEV_AUTH=1`, the `x-effy-*` headers stand in for a signed token:
 
     ```bash
-    your-cli start
+    curl -X POST http://127.0.0.1:3000/eve/v1/session \
+      -H 'content-type: application/json' \
+      -H 'x-effy-tenant: acme' \
+      -H 'x-effy-user: alice' \
+      -H 'x-effy-profile: {"name":"Ada","personality":"Warm and concise."}' \
+      -d '{"message":"Remember my favorite color is teal."}'
     ```
+
+    The `x-effy-profile` header sets a [persona](/concepts/personas) inline for this user. The response returns a `sessionId` and a `continuationToken` you reuse for follow-ups.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+<Warning>
+  `x-effy-tenant`, `x-effy-user`, and `x-effy-profile` are honored **only** when `EFFY_DEV_AUTH=1`. Never set that variable in production — it would let any caller claim any identity. In production, callers authenticate with a [signed session token](/guides/authentication).
+</Warning>
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## Useful scripts
+
+```bash
+npm run dev         # eve dev REPL (set EFFY_DEV_AUTH=1 for local auth)
+npm run typecheck   # tsc
+npm test            # node --test (auth self-check)
+npm run build       # eve build
+```
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    See exactly how a turn is assembled from base, persona, and memory.
+  </Card>
+  <Card title="Call effy from your app" icon="code" href="/guides/sdk">
+    Replace `curl` with the eve TypeScript SDK and a real token.
+  </Card>
+</Columns>

@@ -1,0 +1,71 @@
+---
+title: "Multi-tenancy"
+description: "How a verified (tenant, user) scope flows from route auth into every store, sandbox, and tool — and why no tenant can reach another's data."
+keywords: ["multi-tenant", "tenant scope", "isolation", "TenantScope", "route auth"]
+---
+
+Every tenant-scoped operation in effy keys on one value: the `TenantScope`. It is mandatory, it is read only from verified route auth, and it can never be widened by a prompt, a tool argument, or a remote response.
+
+```ts
+export interface TenantScope {
+  readonly tenantId: string;
+  readonly userId: string;
+}
+```
+
+## Scope is verified, never claimed
+
+The scope enters the system in exactly one place — route auth (`lib/effy-auth.ts`) — and is read back out through one helper that reads `ctx.session.auth.current`, the principal eve populated from a verified credential:
+
+```ts
+export function tryTenantCaller(ctx: TenantAuthContext): TenantScope | null {
+  const caller = ctx.session.auth.current;
+  const tenantId = caller?.attributes.tenantId;
+  if (caller?.principalType !== "user" || typeof tenantId !== "string") return null;
+  return { tenantId, userId: caller.principalId };
+}
+```
+
+Because the scope comes from the principal and not from the turn's content, the model cannot read or write another tenant's data even if a prompt asks it to. A tool receives its scope from `ctx`, never from its arguments.
+
+### Two helpers, two failure modes
+
+| Helper | When the caller is not a tenant user | Use it in |
+| --- | --- | --- |
+| `tryTenantCaller(ctx)` | Returns `null` | Resolvers that should no-op for untenanted principals (instructions, dynamic tools). |
+| `requireTenantCaller(ctx)` | **Throws** (fails the turn closed) | Tools, where acting without a tenant is never correct. |
+
+Instruction and tool **resolvers** use `try*` — a non-user principal (for example, a scheduled or subagent path) simply gets no persona, memory, or custom tools. Tool **executors** use `require*` so a missing scope fails loudly instead of acting globally.
+
+## Collision-free storage keys
+
+A scope becomes a storage key by JSON-encoding the tuple, so no two distinct `(tenant, user)` pairs can ever collapse onto the same key regardless of which characters their ids contain:
+
+```ts
+export function scopeKey(scope: TenantScope): string {
+  return JSON.stringify([scope.tenantId, scope.userId]);
+}
+```
+
+Every store (memory, profile, tools) partitions its data by this key.
+
+## Layers of isolation
+
+Tenant isolation is enforced at several levels at once, not by a single ACL check:
+
+| Layer | Guarantee |
+| --- | --- |
+| **Data** | Stores partition by `scopeKey`. A read or write only ever touches the caller's partition. |
+| **Filesystem / process** | eve gives every session its own [sandbox](/concepts/custom-tools#the-sandbox); one user's files and processes can't see another's. |
+| **Tooling** | Per-user tools are built structurally from the caller's scope — another tenant's tools are never added to the set, so they cannot be called. |
+| **Network** | The sandbox defaults to `deny-all` egress, so untrusted code can't exfiltrate across tenants. |
+
+The tooling guarantee is worth emphasizing: authorization is **structural, not a check**. The resolver only ever lists the verified caller's tools, so another tenant's capability simply isn't built into anyone else's tool set. There is no "deny" path to get wrong. See [Per-user tools](/concepts/custom-tools).
+
+## Session ownership is yours to enforce
+
+Route auth identifies *who is calling*. It does not decide *which sessions* that caller may stream or continue. If multiple tenants share routes, your management layer must enforce that a caller can only access its own `sessionId`s — eve identifies the principal, but the session-ownership ACL is an application concern.
+
+<Note>
+  Replace the in-memory stores with durable, access-controlled storage before handling real multi-tenant data. See [Deployment](/guides/deployment#replace-the-in-memory-stores).
+</Note>

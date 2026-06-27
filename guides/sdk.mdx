@@ -1,0 +1,99 @@
+---
+title: "Call effy from your app"
+description: "Drive effy from a backend or script with the eve TypeScript SDK: create a client, mint a token, send turns, and stream results."
+keywords: ["SDK", "eve/client", "Client", "session", "bearer token", "streaming"]
+---
+
+effy speaks eve's default HTTP API, so any [eve TypeScript SDK](https://eve.dev/docs) client can call it. The client sends a bearer token; effy's route auth turns it into the tenant-scoped principal. Use it from your backend, scripts, tests, evals, or a custom UI.
+
+## Install and create a client
+
+The SDK ships inside the `eve` package — no separate install. A `Client` binds one host and auth policy:
+
+```ts
+import { Client } from "eve/client";
+
+const client = new Client({
+  host: "https://effy.example.com",
+  // Mint a short-lived effy session token for the signed-in user, server-side.
+  auth: { bearer: async () => mintEffySessionToken(currentUser) },
+  // On credential-bearing clients, stop fetch from forwarding auth across origins.
+  redirect: "manual",
+});
+```
+
+The `bearer` function runs before **every** HTTP call, including stream reconnects, so it always sends a fresh token. Minting that token is covered in [Authentication](/guides/authentication).
+
+<Warning>
+  Mint tokens **server-side**. The `EFFY_JWT_SECRET` that signs them must never reach a browser. In a web app, expose an endpoint that mints a short-lived token for the signed-in user and have your client fetch it from there.
+</Warning>
+
+## Send a turn
+
+Create a session per conversation, send a message, and await the result:
+
+```ts
+const session = client.session();
+
+const response = await session.send("Remember that I prefer metric units.");
+
+// Metadata is available as soon as the POST succeeds.
+console.log(response.sessionId, response.continuationToken);
+
+const result = await response.result();
+console.log(result.status, result.message); // "completed", "It's saved …"
+```
+
+`result()` consumes the event stream and returns the final assistant text, the `status` (`"waiting"`, `"completed"`, or `"failed"`), and all observed events. A `session.failed` stream returns `status: "failed"` rather than throwing; transport and route errors throw `ClientError`.
+
+## Stream events live
+
+Iterate the response instead of awaiting `result()` when you want tokens as they arrive. A response is single-use — stream it **or** aggregate it, not both:
+
+```ts
+const response = await session.send("Summarize my open tickets.");
+
+for await (const event of response) {
+  if (event.type === "message.appended") {
+    process.stdout.write(event.data.messageDelta ?? "");
+  }
+}
+```
+
+## One client, many users
+
+A single client can own many sessions at once — each tracks its own `sessionId`, continuation token, and stream cursor. Because identity comes from the token, give each user their own token-bearing client (or set the bearer per request) so turns are scoped to the right `(tenant, user)`:
+
+```ts
+const alice = new Client({ host, auth: { bearer: () => mintEffySessionToken(alice) } }).session();
+const bob = new Client({ host, auth: { bearer: () => mintEffySessionToken(bob) } }).session();
+
+await (await alice.send("Summarize account A.")).result();
+await (await bob.send("Summarize account B.")).result();
+```
+
+## Pass one-turn context
+
+`clientContext` attaches non-persisted context to a single turn — useful for telling the agent where the user is in your app:
+
+```ts
+const response = await session.send({
+  message: "What should I do on this screen?",
+  clientContext: { route: "/billing", plan: "pro", seatsUsed: 4 },
+});
+
+await response.result();
+```
+
+It is not written to durable session history and does not dispatch a turn by itself.
+
+## What to read next
+
+<Columns cols={2}>
+  <Card title="Authentication" icon="key" href="/guides/authentication">
+    Mint and verify the session token this client sends.
+  </Card>
+  <Card title="Deployment" icon="server" href="/guides/deployment">
+    Environment variables and the production checklist.
+  </Card>
+</Columns>

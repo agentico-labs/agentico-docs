@@ -1,0 +1,136 @@
+---
+title: "Per-user tools"
+description: "Let users author their own tools. effy stores the code as data and runs it in the caller's own sandbox, scoped so no one else can see or run it."
+keywords: ["custom tools", "dynamic tools", "defineDynamic", "sandbox", "user code", "replay"]
+---
+
+A user can author their own tools. effy persists them and exposes them back as callable tools, scoped to that `(tenant, user)`. The agent can both *create* a tool for the user and *call* it on the user's behalf.
+
+This is the richest subsystem in effy because running user-authored code safely, on shared infrastructure, in a framework that **replays** interrupted work, forces a specific shape.
+
+## The two constraints that force the design
+
+eve imposes two rules that, together, rule out the obvious approach:
+
+1. **Authored tools run in the app runtime**, not the sandbox. So executing a user's code directly inside a tool would run untrusted code in *your host process* — with your `process.env` and cross-tenant reach.
+2. **A dynamic tool's `execute` must be an inline literal** whose closure is serialized so an interrupted step can be replayed. Compiling a user's code string into `execute` would not survive replay.
+
+So compiling the user's code into `execute` is *doubly* wrong — unsafe **and** non-replayable.
+
+## The answer: user code is data
+
+effy treats the user's code as **data**, not as a function. A single static runner (`lib/run-user-tool.ts`) ships the stored code into the **caller's own sandbox** and runs it there. The dynamic tool's inline `execute` closes over only the JSON `spec` and the imported runner, so it serializes cleanly and survives replay.
+
+```ts
+// agent/tools/custom.ts — rebuilt before each model call
+"step.started": async (_event, ctx) => {
+  const scope = tryTenantCaller(ctx);
+  if (!scope) return null;
+
+  const specs = await toolStore.list(scope);
+  if (specs.length === 0) return null;
+
+  return Object.fromEntries(
+    specs.map((spec) => [
+      spec.name,
+      defineTool({
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        execute: async (input, ctx) => runUserTool(spec, input, ctx), // closes over JSON spec only
+      }),
+    ]),
+  );
+}
+```
+
+## End to end
+
+```mermaid
+sequenceDiagram
+  participant Model
+  participant Create as create_tool (approval)
+  participant Store as toolStore[(tenant,user)]
+  participant Dyn as defineDynamic (step.started)
+  participant Runner as runUserTool
+  participant Sandbox as caller's sandbox
+
+  Model->>Create: author { name, runtime, code, params }
+  Create->>Store: put spec (u_-namespaced)
+  Note over Dyn: next model step
+  Dyn->>Store: list(scope)
+  Store-->>Dyn: this user's specs
+  Dyn-->>Model: one defineTool per spec
+  Model->>Runner: call u_summarize(input)
+  Runner->>Runner: requireTenantCaller(ctx)
+  Runner->>Sandbox: write run.* + input.json
+  Sandbox-->>Runner: stdout / stderr
+  Runner-->>Model: clipped result
+```
+
+The resolver re-runs on `step.started`, so a tool created mid-conversation is callable on the next step.
+
+## What a tool spec holds
+
+```ts
+export interface CustomToolSpec {
+  readonly name: string;        // model-facing, already u_-namespaced and validated
+  readonly description: string;
+  readonly inputSchema: JsonObject; // built from a simple param list
+  readonly runtime: "bash" | "python" | "node";
+  readonly code: string;
+  readonly updatedAt: string;
+}
+```
+
+## How the runner executes code
+
+`runUserTool` writes the code and the call arguments into the sandbox, runs the right interpreter, and returns the output — clipped so a runaway tool can't flood the model's context:
+
+```ts
+const RUNTIME = {
+  bash:   { file: "run.sh",  cmd: "bash run.sh" },
+  python: { file: "run.py",  cmd: "python run.py" },
+  node:   { file: "run.mjs", cmd: "node run.mjs" },
+};
+
+// inside runUserTool:
+requireTenantCaller(ctx);            // never run without a tenant
+const sandbox = await ctx.getSandbox();
+await sandbox.writeTextFile({ path: `${dir}/${file}`, content: spec.code });
+await sandbox.writeTextFile({ path: `${dir}/input.json`, content: JSON.stringify(input ?? {}) });
+const result = await sandbox.run({ command: `cd ${dir} && ${cmd}` });
+return { stdout: clip(result.stdout), stderr: clip(result.stderr) };
+```
+
+A user tool's contract is simple: it receives its call arguments as JSON in `./input.json` and prints its result to stdout. Output is capped at 10,000 characters.
+
+## Managing tools
+
+| Tool | Does | Approval |
+| --- | --- | --- |
+| `create_tool` | Persist a tool (`name`, `description`, `params`, `runtime`, `code`). | **Yes** — it stores executable code. |
+| `list_custom_tools` | List the caller's tools, **without** source. | No |
+| `delete_tool` | Remove one of the caller's tools. | **Yes** |
+
+`create_tool` builds the tool's JSON Schema from a simple, validated param list (rather than accepting a raw schema), namespaces the name with `u_`, and is gated on human approval because it persists code that will later run.
+
+## Why no other user can touch it
+
+| Layer | Guarantee |
+| --- | --- |
+| **Visibility** | The resolver lists tools for the verified caller only; another tenant never sees them. |
+| **Execution** | The runner re-derives the scope from `ctx` and runs in *that session's own sandbox*. |
+| **Blast radius** | User code runs in the sandbox, never the app runtime — no `process.env`, no cross-tenant reach. |
+| **Name safety** | Names are `u_`-namespaced, so a user tool can't shadow `bash`, `remember`, or any built-in. |
+| **Network** | The sandbox defaults to `deny-all` egress (`sandbox/sandbox.ts`); opt back in per tenant. |
+
+<Warning>
+  Running user-authored code is inherently risky. Keep sandbox egress locked down, keep `create_tool` gated on approval, and cap tool count, code size, and runtime. Because eve re-runs an interrupted step, **user code should be idempotent**. The tool store is in-memory in the reference build — make it durable before relying on it.
+</Warning>
+
+## The sandbox
+
+eve already isolates every session's sandbox. effy's `sandbox/sandbox.ts` adds two things on top:
+
+- **Deny-all egress by default** across every backend (Vercel, Docker, microsandbox), because that sandbox may run user code. Relax it per tenant with an allow-list on the factory or `sandbox.setNetworkPolicy(...)` on the live handle.
+- A **per-session marker** (`.effy-tenant.json`) recording which `(tenant, user)` owns the sandbox, for debugging and audit.

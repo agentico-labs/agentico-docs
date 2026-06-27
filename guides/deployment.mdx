@@ -1,0 +1,90 @@
+---
+title: "Deployment"
+description: "Environment variables, model configuration, and the checklist for taking effy from the in-memory reference build to production."
+keywords: ["deployment", "environment variables", "production", "AI gateway", "durable storage"]
+---
+
+effy deploys like any eve agent. This page covers the variables it reads, how the model is configured, and what you must change before handling real multi-tenant data.
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `EFFY_JWT_SECRET` | production | HMAC secret used to verify session tokens. |
+| `EFFY_JWT_ISSUER` | no (`effy`) | Expected `iss` claim. |
+| `EFFY_JWT_AUDIENCE` | no (`effy-agent`) | Expected `aud` claim. |
+| `EFFY_DEV_AUTH` | dev only | `1` enables `x-effy-*` dev headers. **Must be unset in production.** |
+
+The model also needs gateway credentials — see [the model](#the-model) below.
+
+## The model
+
+The base model is configured in `agent/agent.ts`:
+
+```ts
+import { defineAgent } from "eve";
+
+export default defineAgent({
+  model: "anthropic/claude-sonnet-4.6",
+});
+```
+
+The model routes through the Vercel AI Gateway. Provide its credentials per the [eve deployment docs](https://eve.dev/docs). To change models, edit this one line — the rest of effy is model-agnostic.
+
+## Build and run
+
+```bash
+npm run build   # eve build
+npm run start   # eve start
+```
+
+## Production checklist
+
+<Steps>
+  <Step title="Set a strong JWT secret">
+    Set `EFFY_JWT_SECRET` to a high-entropy secret from your secret manager. Without it, token auth is not configured and bearer requests are rejected.
+  </Step>
+  <Step title="Unset dev auth">
+    Ensure `EFFY_DEV_AUTH` is **not** set. It lets any caller claim any identity and persona.
+  </Step>
+  <Step title="Replace the in-memory stores">
+    Swap the reference stores for durable, access-controlled storage. See [below](#replace-the-in-memory-stores).
+  </Step>
+  <Step title="Keep the sandbox locked down">
+    The sandbox defaults to `deny-all` egress because it can run user code. Relax it only per tenant, only where you need it. See [Per-user tools](/concepts/custom-tools#the-sandbox).
+  </Step>
+  <Step title="Enforce session ownership">
+    Route auth identifies the caller but does not decide which sessions it may access. Enforce that ACL in your app if tenants share routes. See [Multi-tenancy](/concepts/multi-tenancy#session-ownership-is-yours-to-enforce).
+  </Step>
+  <Step title="Bound user-tool risk">
+    Keep `create_tool` gated on approval, and cap tool count, code size, and runtime. Treat all user code as untrusted and idempotent.
+  </Step>
+</Steps>
+
+## Replace the in-memory stores
+
+The memory, profile, and tool stores ship as **process-local Maps**. They are correct for `eve dev` and a single instance, but they are not durable and not shared across processes — restart the process and they are gone.
+
+Each store hides behind a small interface (`MemoryStore`, `ProfileStore`, `ToolStore`), so swapping the backing implementation changes nothing else in the agent. Callers only ever see the interface.
+
+```ts
+// agent/lib/memory-store.ts — swap the implementation, keep the interface
+export interface MemoryStore {
+  list(scope: TenantScope, options: { limit: number }): Promise<Memory[]>;
+  put(scope: TenantScope, memory: { key: string; value: string }): Promise<Memory>;
+  delete(scope: TenantScope, key: string): Promise<boolean>;
+}
+
+export const memoryStore: MemoryStore = new InMemoryMemoryStore(); // ← replace this
+```
+
+Whatever backend you choose — Postgres, a durable KV store, or a vector store — preserve these invariants:
+
+- **Tenant and user are mandatory** inputs to every read and write.
+- A key is **unique only within** one `(tenant, user)` scope.
+- Writes are **durable** across sessions and processes.
+- Size, count, retention, export, and deletion are **bounded by product policy**.
+
+<Tip>
+  For memory at scale, replace the flat `list` with semantic retrieval keyed on the current message — but keep the `(tenant, user)` scope as part of the query, not a post-filter.
+</Tip>

@@ -1,0 +1,74 @@
+---
+title: "Tool reference"
+description: "Every built-in tool effy ships, with its inputs, approval policy, and scope."
+keywords: ["tools", "remember", "forget", "create_tool", "reference"]
+---
+
+effy ships six built-in tools in two groups — memory and personal tools — plus the per-user `u_*` tools each user authors. Every tool derives its `(tenant, user)` scope from the verified principal in `ctx`; none accepts a tenant or user as an argument.
+
+## Memory tools
+
+<ResponseField name="remember" type="tool">
+  Save one stable fact or preference for the current user.
+
+  - **Input:** `key` (1–80 chars, `^[a-z0-9_.-]+$`), `value` (1–4000 chars)
+  - **Approval:** none
+  - Overwrites any existing memory with the same `key` in this scope.
+</ResponseField>
+
+<ResponseField name="list_memories" type="tool">
+  List the long-term memories saved for the current user (most recent first, up to 50).
+
+  - **Input:** none
+  - **Approval:** none
+</ResponseField>
+
+<ResponseField name="forget" type="tool">
+  Delete one long-term memory belonging to the current user.
+
+  - **Input:** `key` (1–80 chars)
+  - **Approval:** **required** — deletion is destructive (product policy, not a framework requirement)
+</ResponseField>
+
+See [Long-term memory](/concepts/memory) for how these compose with the per-turn memory injection.
+
+## Personal-tool management
+
+<ResponseField name="create_tool" type="tool">
+  Create or replace a personal tool for the current user. Stored scoped to `(tenant, user)` and callable on the next model step.
+
+  - **Input:** `name` (`^[a-z][a-z0-9_]{0,38}$`), `description` (1–500), `runtime` (`bash` | `python` | `node`), `code` (1–20,000 chars), `params` (up to 10)
+  - **Approval:** **required** — it persists code that will execute
+  - The name is stored `u_`-namespaced (e.g. `u_summarize`). Its code runs in the user's own sandbox, reads arguments from `./input.json`, and prints results to stdout.
+</ResponseField>
+
+<ResponseField name="list_custom_tools" type="tool">
+  List the personal tools the current user has created — **without** source code.
+
+  - **Input:** none
+  - **Approval:** none
+</ResponseField>
+
+<ResponseField name="delete_tool" type="tool">
+  Delete one of the current user's personal tools (use the name from `list_custom_tools`).
+
+  - **Input:** `name` (1–41 chars)
+  - **Approval:** **required**
+</ResponseField>
+
+See [Per-user tools](/concepts/custom-tools) for the execution model and isolation guarantees.
+
+## Per-user tools (`u_*`)
+
+Tools a user authors with `create_tool` appear in their own tool set, namespaced with a `u_` prefix so they can never shadow a built-in. They are **only ever** added to the verified author's session — another tenant's session never sees or can call them.
+
+A `params` entry on `create_tool` has this shape:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | string | `^[a-z][a-z0-9_]{0,30}$` |
+| `type` | enum | `string`, `number`, or `boolean` |
+| `description` | string | optional, up to 200 chars |
+| `required` | boolean | defaults to `true` |
+
+effy builds the tool's JSON Schema from this list rather than accepting a raw schema.
