@@ -122,15 +122,15 @@ A user tool's contract is simple: it receives its call arguments as JSON in `./i
 | **Execution** | The runner re-derives the scope from `ctx` and runs in *that session's own sandbox*. |
 | **Blast radius** | User code runs in the sandbox, never the app runtime — no `process.env`, no cross-tenant reach. |
 | **Name safety** | Names are `u_`-namespaced, so a user tool can't shadow `bash`, `remember`, or any built-in. |
-| **Network** | The sandbox defaults to `deny-all` egress (`sandbox/sandbox.ts`); opt back in per tenant. |
+| **Network** | Egress is `deny-all`; a host opens only after the user approves it via `allow_domain` — a per-`(tenant, user)` allow-list. |
 
 <Warning>
-  Running user-authored code is inherently risky. Keep sandbox egress locked down, keep `create_tool` gated on approval, and cap tool count, code size, and runtime. Because eve re-runs an interrupted step, **user code should be idempotent**. The tool store is in-memory in the reference build — make it durable before relying on it.
+  Running user-authored code is inherently risky. Egress is deny-all and opens only to domains the user approves via `allow_domain`; keep `create_tool` gated on approval, and cap tool count, code size, and runtime. Because eve re-runs an interrupted step, **user code should be idempotent**. Tool specs persist in [Supermemory](https://supermemory.ai), scoped to the author's `(tenant, user)`.
 </Warning>
 
 ## The sandbox
 
 eve already isolates every session's sandbox. effy's `sandbox/sandbox.ts` adds two things on top:
 
-- **Deny-all egress by default** across every backend (Vercel, Docker, microsandbox), because that sandbox may run user code. Relax it per tenant with an allow-list on the factory or `sandbox.setNetworkPolicy(...)` on the live handle.
+- **Deny-all egress**, opened per session only to the domains the user has approved via the `allow_domain` tool — an approval-gated, per-`(tenant, user)` allow-list applied with `sandbox.setNetworkPolicy(...)`. Domain lists are enforced on Vercel and microsandbox; Docker is all-or-nothing and just-bash has no network.
 - A **per-session marker** (`.effy-tenant.json`) recording which `(tenant, user)` owns the sandbox, for debugging and audit.

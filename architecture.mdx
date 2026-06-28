@@ -45,7 +45,7 @@ sequenceDiagram
   participant SDK as eve/client
   participant Auth as effyAuth()
   participant Eve as eve runtime
-  participant Store as Stores (memory / profile / tool)
+  participant Store as Supermemory
   participant Model as Model
 
   App->>App: mint signed session token for the user
@@ -60,8 +60,8 @@ sequenceDiagram
   Eve->>Eve: merge inline ⟂ stored → persona layer
 
   Note over Eve: turn.started
-  Eve->>Store: memoryStore.list(scope)
-  Store-->>Eve: memories → fenced JSON layer
+  Eve->>Store: profile(scope, q = user message)
+  Store-->>Eve: static + dynamic + relevant → fenced JSON
 
   Note over Eve: step.started
   Eve->>Store: toolStore.list(scope)
@@ -84,7 +84,7 @@ eve has no tenant subsystem. effy builds one from a handful of primitives:
 | **Identity** | A custom route `AuthFn` (`lib/effy-auth.ts`) puts `(tenantId, userId)` on the principal. |
 | **Memory** | A dynamic-instructions resolver loads it per turn; `remember` / `list_memories` / `forget` tools write it. |
 | **Persona** | A dynamic-instructions resolver merges an inline-or-stored profile onto the base prompt. |
-| **Sandbox** | eve gives every session its own sandbox; `sandbox/sandbox.ts` tags it and locks egress. |
+| **Sandbox** | eve gives every session its own sandbox; `sandbox/sandbox.ts` tags it and applies the user's egress allow-list. |
 | **Tooling** | A `defineDynamic` resolver builds each user's own tools from their scope; no other tenant can see or run them. |
 
 ## Project layout
@@ -107,20 +107,21 @@ agent/
   channels/
     eve.ts                 HTTP channel guarded by effyAuth()
   sandbox/
-    sandbox.ts             deny-all egress default + per-session tenant marker
+    sandbox.ts             per-user egress allow-list (deny-all + approved) + tenant marker
   lib/
-    scope.ts               TenantScope + storage key
+    scope.ts               TenantScope
     tenant.ts              requireTenantCaller / tryTenantCaller / readInlineProfile
     effy-auth.ts           route auth: JWT (+ dev headers)
     effy-auth.test.ts      self-check for the auth path
-    memory-store.ts        MemoryStore + in-memory impl
-    profile-store.ts       ProfileStore + in-memory impl
-    tool-store.ts          ToolStore + in-memory impl
+    supermemory.ts         Supermemory client + per-scope container tags
+    memory-store.ts        MemoryStore (Supermemory-backed)
+    profile-store.ts       ProfileStore (Supermemory-backed)
+    tool-store.ts          ToolStore (Supermemory-backed)
     run-user-tool.ts       static runner: executes user tool code in the sandbox
 ```
 
 <Note>
-  The three stores ship as **in-memory** reference implementations — correct for `eve dev` and a single instance, but not durable or shared across processes. Each hides behind a small interface, so swapping in Postgres, a KV store, or a vector store changes nothing else. See [Deployment](/guides/deployment#replace-the-in-memory-stores).
+  All three stores persist in [Supermemory](https://supermemory.ai), scoped per `(tenant, user)` by container tag, behind a small interface so the backend stays swappable. Memory is agentic — injected each turn from Supermemory's consolidated profile. Set `SUPERMEMORY_API_KEY`; see [Deployment](/guides/deployment#supermemory).
 </Note>
 
 ## What to read next

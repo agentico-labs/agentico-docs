@@ -58,7 +58,7 @@ Tenant isolation is enforced at several levels at once, not by a single ACL chec
 | **Data** | Stores partition by `scopeKey`. A read or write only ever touches the caller's partition. |
 | **Filesystem / process** | eve gives every session its own [sandbox](/concepts/custom-tools#the-sandbox); one user's files and processes can't see another's. |
 | **Tooling** | Per-user tools are built structurally from the caller's scope — another tenant's tools are never added to the set, so they cannot be called. |
-| **Network** | The sandbox defaults to `deny-all` egress, so untrusted code can't exfiltrate across tenants. |
+| **Network** | Egress is `deny-all`; hosts open only via user-approved `allow_domain`, so untrusted code can't exfiltrate across tenants. |
 
 The tooling guarantee is worth emphasizing: authorization is **structural, not a check**. The resolver only ever lists the verified caller's tools, so another tenant's capability simply isn't built into anyone else's tool set. There is no "deny" path to get wrong. See [Per-user tools](/concepts/custom-tools).
 
@@ -67,5 +67,5 @@ The tooling guarantee is worth emphasizing: authorization is **structural, not a
 Route auth identifies *who is calling*. It does not decide *which sessions* that caller may stream or continue. If multiple tenants share routes, your management layer must enforce that a caller can only access its own `sessionId`s — eve identifies the principal, but the session-ownership ACL is an application concern.
 
 <Note>
-  Replace the in-memory stores with durable, access-controlled storage before handling real multi-tenant data. See [Deployment](/guides/deployment#replace-the-in-memory-stores).
+  Memory, personas, and tools persist in [Supermemory](https://supermemory.ai), scoped per `(tenant, user)` by container tag. Set `SUPERMEMORY_API_KEY`; see [Deployment](/guides/deployment#supermemory).
 </Note>

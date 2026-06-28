@@ -1,6 +1,6 @@
 ---
 title: "Deployment"
-description: "Environment variables, model configuration, and the checklist for taking effy from the in-memory reference build to production."
+description: "Environment variables, Supermemory configuration, the model, and the production checklist."
 keywords: ["deployment", "environment variables", "production", "AI gateway", "durable storage"]
 ---
 
@@ -14,6 +14,7 @@ effy deploys like any eve agent. This page covers the variables it reads, how th
 | `EFFY_JWT_ISSUER` | no (`effy`) | Expected `iss` claim. |
 | `EFFY_JWT_AUDIENCE` | no (`effy-agent`) | Expected `aud` claim. |
 | `EFFY_DEV_AUTH` | dev only | `1` enables `x-effy-*` dev headers. **Must be unset in production.** |
+| `SUPERMEMORY_API_KEY` | yes | Supermemory key backing memory, personas, and tools. |
 
 The model also needs gateway credentials — see [the model](#the-model) below.
 
@@ -47,11 +48,11 @@ npm run start   # eve start
   <Step title="Unset dev auth">
     Ensure `EFFY_DEV_AUTH` is **not** set. It lets any caller claim any identity and persona.
   </Step>
-  <Step title="Replace the in-memory stores">
-    Swap the reference stores for durable, access-controlled storage. See [below](#replace-the-in-memory-stores).
+  <Step title="Set the Supermemory key">
+    Memory, personas, and tools persist in Supermemory. Set `SUPERMEMORY_API_KEY` and keep it server-side. See [below](#supermemory).
   </Step>
   <Step title="Keep the sandbox locked down">
-    The sandbox defaults to `deny-all` egress because it can run user code. Relax it only per tenant, only where you need it. See [Per-user tools](/concepts/custom-tools#the-sandbox).
+    Egress is `deny-all`; hosts open only when a user approves them via `allow_domain`. Keep `BASE_ALLOWED_EGRESS` minimal. See [Per-user tools](/concepts/custom-tools#the-sandbox).
   </Step>
   <Step title="Enforce session ownership">
     Route auth identifies the caller but does not decide which sessions it may access. Enforce that ACL in your app if tenants share routes. See [Multi-tenancy](/concepts/multi-tenancy#session-ownership-is-yours-to-enforce).
@@ -61,30 +62,31 @@ npm run start   # eve start
   </Step>
 </Steps>
 
-## Replace the in-memory stores
+## Supermemory
 
-The memory, profile, and tool stores ship as **process-local Maps**. They are correct for `eve dev` and a single instance, but they are not durable and not shared across processes — restart the process and they are gone.
+Memory, personas, and tools all persist in [Supermemory](https://supermemory.ai) through one client (`lib/supermemory.ts`). Set the key:
 
-Each store hides behind a small interface (`MemoryStore`, `ProfileStore`, `ToolStore`), so swapping the backing implementation changes nothing else in the agent. Callers only ever see the interface.
+```bash
+SUPERMEMORY_API_KEY=sk-...   # required; keep it server-side
+```
+
+Each store is reached only through a small interface (`MemoryStore`, `ProfileStore`, `ToolStore`), so the backend stays swappable without touching the rest of the agent:
 
 ```ts
-// agent/lib/memory-store.ts — swap the implementation, keep the interface
+// agent/lib/memory-store.ts — the interface the agent depends on
 export interface MemoryStore {
   list(scope: TenantScope, options: { limit: number }): Promise<Memory[]>;
   put(scope: TenantScope, memory: { key: string; value: string }): Promise<Memory>;
   delete(scope: TenantScope, key: string): Promise<boolean>;
 }
-
-export const memoryStore: MemoryStore = new InMemoryMemoryStore(); // ← replace this
 ```
 
-Whatever backend you choose — Postgres, a durable KV store, or a vector store — preserve these invariants:
+How effy keeps it multi-tenant-safe:
 
-- **Tenant and user are mandatory** inputs to every read and write.
-- A key is **unique only within** one `(tenant, user)` scope.
-- Writes are **durable** across sessions and processes.
-- Size, count, retention, export, and deletion are **bounded by product policy**.
+- **Isolation is by container tag.** Each `(tenant, user)` and namespace (memory, persona, tool) maps to its own Supermemory container tag, and every read is scoped to the caller's tag.
+- **Identity is by key within a tag**, so overwrite and delete never depend on a globally unique id.
+- Reads **degrade gracefully** if Supermemory is unreachable; writes surface the error to the calling tool.
 
-<Tip>
-  For memory at scale, replace the flat `list` with semantic retrieval keyed on the current message — but keep the `(tenant, user)` scope as part of the query, not a post-filter.
-</Tip>
+<Note>
+  Without `SUPERMEMORY_API_KEY`, the stores throw on use and the resolvers add no memory, persona, or tools. In local dev, effy auto-loads it from `.env.local` or `.env`; in production the platform injects it.
+</Note>

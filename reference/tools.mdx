@@ -23,6 +23,14 @@ effy ships six built-in tools in two groups — memory and personal tools — pl
   - **Approval:** none
 </ResponseField>
 
+<ResponseField name="search_memory" type="tool">
+  Hybrid semantic search over the current user's memory, for on-demand retrieval mid-turn.
+
+  - **Input:** `query` (1–500 chars), `limit` (1–20, default 5)
+  - **Approval:** none — read-only
+  - Complements the memory injected automatically at the start of each turn.
+</ResponseField>
+
 <ResponseField name="forget" type="tool">
   Delete one long-term memory belonging to the current user.
 
@@ -54,6 +62,14 @@ See [Long-term memory](/concepts/memory) for how these compose with the per-turn
 
   - **Input:** `name` (1–41 chars)
   - **Approval:** **required**
+</ResponseField>
+
+<ResponseField name="allow_domain" type="tool">
+  Approve a network domain so the current user's tools can reach it. Tools run with deny-all egress; this opens one host.
+
+  - **Input:** `domain` (hostname like `api.example.com` or `*.example.com`)
+  - **Approval:** **required** — a human authorizes the host
+  - Persisted per `(tenant, user)` and applied to the live sandbox.
 </ResponseField>
 
 See [Per-user tools](/concepts/custom-tools) for the execution model and isolation guarantees.

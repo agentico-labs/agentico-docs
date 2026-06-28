@@ -47,7 +47,7 @@ The management layer authenticates the session and passes the profile inline —
 
 ### Persisted profile store
 
-The store is keyed by `(tenant, user)`. The first session that supplies an inline profile **provisions** the user — it persists the profile — so later sessions can omit the parameter and inherit it:
+The store is [Supermemory](https://supermemory.ai), keyed by `(tenant, user)`. The first session that supplies an inline profile **provisions** the user — it persists the profile — so later sessions can omit the parameter and inherit it:
 
 ```ts
 let profile: Profile | null = stored;

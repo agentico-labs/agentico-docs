@@ -14,6 +14,7 @@ A single reference for every knob in effy.
 | `EFFY_JWT_ISSUER` | no | `effy` | Expected `iss` claim. |
 | `EFFY_JWT_AUDIENCE` | no | `effy-agent` | Expected `aud` claim. |
 | `EFFY_DEV_AUTH` | dev only | unset | `1` enables `x-effy-*` dev headers. Must be unset in production. |
+| `SUPERMEMORY_API_KEY` | yes | — | Supermemory key backing memory, personas, and tools. |
 
 ## Scripts
 
@@ -39,7 +40,7 @@ Change the model by editing this one line. It routes through the Vercel AI Gatew
 
 ## Validation limits and caps
 
-effy validates every input at its trust boundary. These are the bounds enforced in the reference build:
+effy validates every input at its trust boundary. These are the bounds it enforces:
 
 ### Memory
 
@@ -81,17 +82,15 @@ The profile schema is `.strict()` — unknown fields are rejected.
 
 ## Sandbox network policy
 
-The sandbox defaults to `deny-all` egress on every backend because it can run user-authored code:
+Egress starts at `deny-all` because the sandbox can run user-authored code. The backend is chosen so domain allow-lists actually work: **microsandbox** locally (Docker can't scope egress by domain), **Vercel Sandbox** in production.
 
 ```ts title="agent/sandbox/sandbox.ts"
-backend: defaultBackend({
-  vercel: { networkPolicy: "deny-all" },
-  docker: { networkPolicy: "deny-all" },
-  microsandbox: { networkPolicy: "deny-all" },
-}),
+const backend = process.env.VERCEL
+  ? defaultBackend({ vercel: { networkPolicy: "deny-all" } })
+  : microsandbox({ networkPolicy: "deny-all" });
 ```
 
-Relax it per tenant with an allow-list on the factory, or `sandbox.setNetworkPolicy(...)` on the live handle. See [Per-user tools](/concepts/custom-tools#the-sandbox).
+Per session, effy opens egress only to the domains the caller has approved via the `allow_domain` tool — a per-`(tenant, user)` allow-list applied with `sandbox.setNetworkPolicy(...)`. Domain allow-lists are enforced on the Vercel and microsandbox backends; Docker is all-or-nothing and just-bash has no network. See [Per-user tools](/concepts/custom-tools#the-sandbox).
 
 ## Approval-gated tools
 

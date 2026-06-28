@@ -27,5 +27,5 @@
 
 ## Content boundaries
 
-- Document the reference build as it ships. The three stores (memory, profile, tool) are **in-memory reference implementations** — always say so, and point to [Deployment](/guides/deployment) for making them durable.
+- Memory, personas, and tools persist in **Supermemory** (`lib/supermemory.ts`), scoped per `(tenant, user)`. Memory is agentic — injected each turn from Supermemory's consolidated profile. Don't describe the stores as in-memory; document `SUPERMEMORY_API_KEY` as required.
 - Do not document `EFFY_DEV_AUTH` as anything other than a local-only flag that must never run in production.
